@@ -9,9 +9,9 @@ const NUM_PALETTES = 32;
                   Pixels | Bits per byte */
 const TILE_SIZE = 8 * 8  / 8;
 
-/* Sprites have     TILE_ID| PAL_ID |    X   |    Y
-                    7 bits | 5 bits | 1 byte | 1 byte */
-const SPRITE_SIZE = 1      + 1      + 1      + 1;
+/* Sprites have     TILE_ID | PAL_ID + ALPHA |    X   |    Y
+                    7 bits  | 5 bits + 2 bits| 1 byte | 1 byte */
+const SPRITE_SIZE = 1       + 1              + 1      + 1;
 /* (0, 0) on the screen is (64, 64) */
 /* (127, 127) on the screen is (191, 191) */
 
@@ -111,13 +111,15 @@ tiles[53] = 0b01000100;
 tiles[54] = 0b00111000;
 tiles[55] = 0b00000000;
 
-function draw_image(tile_id, palette_id, xpos, ypos) {
+function draw_image(tile_id, palette_id, xpos, ypos, alpha) {
 	const data = buffer.data;
 	const palette = palettes[palette_id];
 
 	for (let y = 0; y < 8; y++)
 	for (let x = 0; x < 8; x++) {
 		let pixel = tiles[tile_id * TILE_SIZE + y] >> (7 - x) & 0x1;
+		if (pixel === 1 && alpha === 3) continue;
+		else if (pixel === 0 && alpha === 2) continue;
 		let color = palette >> (pixel * 8) & 0xFF
 		/* pix_fmt = RGB332 */
 		data[((y + ypos) * 128 + x + xpos) * 4 + 0] = ((color >> 5) & 0x7) << 5 /*   red */
@@ -134,10 +136,10 @@ for (let i = 3; i < 128 * 128 * 4; i += 4) buffer.data[i] = 0xFF;
 for (let i = 0; i < 256; i++)
 	set_map((i % 16) % 7, i >> 4 % 3, i & 0xF, i >> 4);
 
-put_sprite(0, 4, 1, 8*4, 8*5);
-put_sprite(1, 5, 1, 8*5, 8*5);
-put_sprite(2, 6, 1, 8*6, 8*5);
-put_sprite(3, 2, 1, 8*7, 8*5);
+put_sprite(0, 4, 1, 8*4, 8*5, 3);
+put_sprite(1, 5, 1, 8*5, 8*5, 3);
+put_sprite(2, 6, 1, 8*6, 8*5, 3);
+put_sprite(3, 2, 1, 8*7, 8*5, 3);
 
 put_sprite(4, 0, 2, 60, 60);
 
@@ -174,12 +176,15 @@ function draw_sprites() {
 	for (let id = 0; id < NUM_SPRITES; id++) {
 		let sprite = sprites[id];
 		if (sprite == 0) continue;
-		draw_image(sprite >> 24, sprite >> 16 & 0xFF, sprite >> 8 & 0xFF, sprite & 0xFF);
+		draw_image(sprite >> 24, sprite >> 18 & 0x1F, sprite >> 8 & 0xFF, sprite & 0xFF, sprite >> 16 & 0x3);
 	}
 }
 
-function put_sprite(id, tile_id, palette_id, x, y) {
-	sprites[id] = tile_id << 24 | (palette_id << 16) & 0xFF0000 | (x << 8) & 0xFF00 | y & 0xFF;
+function put_sprite(id, tile_id, palette_id, x, y, alpha = 0) {
+	sprites[id] = tile_id << 24
+	            | (palette_id << 18) & 0xFF0000
+	            | alpha << 16 & 0x030000
+	            | (x << 8) & 0xFF00 | y & 0xFF;
 }
 
 setInterval(() => palettes[0] = Math.floor(Math.random() * (1 << 16)), 532);
