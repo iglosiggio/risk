@@ -1,22 +1,25 @@
 const risk = document.getElementById("risk");
 const ctx = risk.getContext("2d");
 
-const NUM_TILES = 64;
+const NUM_TILES = 128;
 const NUM_SPRITES = 32;
-const NUM_PALETTES = 4;
+const NUM_PALETTES = 32;
 
 /* Tiles are 8x8px, 1 bit depth
                   Pixels | Bits per byte */
 const TILE_SIZE = 8 * 8  / 8;
 
 /* Sprites have     TILE_ID| PAL_ID |    X   |    Y
-                    6 bits | 2 bits | 1 byte | 1 byte */
-const SPRITE_SIZE = 0.75   + 0.25   + 1      + 1;
+                    7 bits | 5 bits | 1 byte | 1 byte */
+const SPRITE_SIZE = 1      + 1      + 1      + 1;
 /* (0, 0) on the screen is (64, 64) */
 /* (127, 127) on the screen is (191, 191) */
 
-/* The canvas is  8x8  |  TILE_ID | PALETTE_ID */
-const MAP_SIZE = (8*8) * (0.8     +    0.2);
+/* Only the first half of the sprites are available
+ * for the screen (and four palettes)
+   The canvas is  16x16  |  TILE_ID | PALETTE_ID
+                         |  6 bits  | 2 bits */
+const MAP_SIZE = (16*16) * (0.75    + 0.25);
 
 /* Two 8 bit colors */
 const PALETTE_SIZE = 2;
@@ -33,7 +36,9 @@ const palettemem = mem.slice(start, start += PALETTE_SIZE * NUM_PALETTES);
 const mapmem     = mem.slice(start, start += MAP_SIZE);
 
 const tiles = new Uint8Array(tilemem);
+const sprites = new Uint32Array(spritemem);
 const palettes = new Uint16Array(palettemem);
+const map = new Uint8Array(mapmem);
 
 /* hardcoded palettes for now */
 palettes[0] = 0xFF00;
@@ -106,12 +111,8 @@ tiles[53] = 0b01000100;
 tiles[54] = 0b00111000;
 tiles[55] = 0b00000000;
 
-function get_image(tile_id, palette_id) {
-	if (tile_id    > NUM_TILES    || tile_id    < 0) throw new Error("Tile id out of range");
-	if (palette_id > NUM_PALETTES || palette_id < 0) throw new Error("Palette id out of range");
-
-	const img = ctx.createImageData(8, 8);
-	const data = img.data;
+function draw_image(tile_id, palette_id, xpos, ypos) {
+	const data = buffer.data;
 	const palette = palettes[palette_id];
 
 	for (let y = 0; y < 8; y++)
@@ -119,42 +120,95 @@ function get_image(tile_id, palette_id) {
 		let pixel = tiles[tile_id * TILE_SIZE + y] >> (7 - x) & 0x1;
 		let color = palette >> (pixel * 8) & 0xFF
 		/* pix_fmt = RGB332 */
-		data[(y * 8 + x) * 4 + 0] = ((color >> 5) & 0x7) << 5 /*   red */
-		data[(y * 8 + x) * 4 + 1] = ((color >> 2) & 0x7) << 5 /* green */
-		data[(y * 8 + x) * 4 + 2] = ((color >> 0) & 0x3) << 6 /*  blue */
-		data[(y * 8 + x) * 4 + 3] = 0xFF;
+		data[((y + ypos) * 128 + x + xpos) * 4 + 0] = ((color >> 5) & 0x7) << 5 /*   red */
+		data[((y + ypos) * 128 + x + xpos) * 4 + 1] = ((color >> 2) & 0x7) << 5 /* green */
+		data[((y + ypos) * 128 + x + xpos) * 4 + 2] = ((color >> 0) & 0x3) << 6 /*  blue */
+		data[((y + ypos) * 128 + x + xpos) * 4 + 3] = 0xFF;
 	}
-	return img;
 }
+
+const buffer = ctx.createImageData(128, 128);
+for (let i = 3; i < 128 * 128 * 4; i += 4) buffer.data[i] = 0xFF;
+
+/* Generate background */
+for (let i = 0; i < 256; i++)
+	set_map((i % 16) % 7, i >> 4 % 3, i & 0xF, i >> 4);
+
+put_sprite(0, 4, 1, 8*4, 8*5);
+put_sprite(1, 5, 1, 8*5, 8*5);
+put_sprite(2, 6, 1, 8*6, 8*5);
+put_sprite(3, 2, 1, 8*7, 8*5);
+
+put_sprite(4, 0, 2, 60, 60);
 
 function draw() {
-	for (let i = 0; i < 128; i += 8)
-	for (let j = 0; j < 128; j += 8)
-		ctx.putImageData(get_image(j / 8 % 3, i / 8 % 4), i, j);
-
-	ctx.putImageData(get_image(4,1), 8*4, 8*5);
-	ctx.putImageData(get_image(5,1), 8*5, 8*5);
-	ctx.putImageData(get_image(6,1), 8*6, 8*5);
-	ctx.putImageData(get_image(2,1), 8*7, 8*5);
+	const data = buffer.data;
+	draw_map();
+	draw_sprites();
+	ctx.putImageData(buffer, 0, 0);
 }
 
-setInterval(function () {
-	palettes[0] = Math.floor(Math.random() * (1 << 16));
-	draw();
-}, 532);
-setInterval(function () {
-	palettes[1] = Math.floor(Math.random() * (1 << 16));
-	draw();
-}, 1333);
-setInterval(function () {
-	palettes[2] = Math.floor(Math.random() * (1 << 16));
-	draw();
-}, 167);
-setInterval(function () {
-	palettes[3] = Math.floor(Math.random() * (1 << 16));
-	draw();
-}, 269);
+function set_map(tile_id, palette_id, x, y) {
+	map[y << 4 | x & 0xF] = (tile_id & 0x3F) << 2 | palette_id & 0x3;
+}
 
+function draw_map() {
+	const data = buffer.data;
+	for (let ymap = 0; ymap < 16; ymap++)
+	for (let xmap = 0; xmap < 16; xmap++) {
+		let palette = palettes[map[ymap * 16 + xmap] & 0x3];
+		let tile_id = map[ymap * 16 + xmap] >> 2;
+		for (let y    = 0; y    < 8; y++)
+		for (let x    = 0; x    < 8; x++) {
+			let pixel = tiles[tile_id * TILE_SIZE + y] >> (7 - x) & 0x1;
+			let color = palette >> (pixel * 8) & 0xFF
+			/* pix_fmt = RGB332 */
+			data[((y + ymap * 8) * 128 + x + xmap * 8) * 4 + 0] = ((color >> 5) & 0x7) << 5 /*   red */
+			data[((y + ymap * 8) * 128 + x + xmap * 8) * 4 + 1] = ((color >> 2) & 0x7) << 5 /* green */
+			data[((y + ymap * 8) * 128 + x + xmap * 8) * 4 + 2] = ((color >> 0) & 0x3) << 6 /*  blue */
+		}
+	}
+}
 
+function draw_sprites() {
+	for (let id = 0; id < NUM_SPRITES; id++) {
+		let sprite = sprites[id];
+		if (sprite == 0) continue;
+		draw_image(sprite >> 24, sprite >> 16 & 0xFF, sprite >> 8 & 0xFF, sprite & 0xFF);
+	}
+}
 
-draw();
+function put_sprite(id, tile_id, palette_id, x, y) {
+	sprites[id] = tile_id << 24 | (palette_id << 16) & 0xFF0000 | (x << 8) & 0xFF00 | y & 0xFF;
+}
+
+setInterval(() => palettes[0] = Math.floor(Math.random() * (1 << 16)), 532);
+setInterval(() => palettes[1] = Math.floor(Math.random() * (1 << 16)), 1333);
+setInterval(() => palettes[2] = Math.floor(Math.random() * (1 << 16)), 167);
+setInterval(() => palettes[3] = Math.floor(Math.random() * (1 << 16)), 269);
+
+requestAnimationFrame(function frame() {
+	draw();
+	meganimation();
+	requestAnimationFrame(frame);
+});
+
+function meganimation() {
+	let ycenter = 8*5;
+	for (let i = 0; i < 4; i++) {
+		let sprite = sprites[i];
+		let y = ycenter + Math.floor(Math.sin(Date.now() / 200 + i) * 6);
+		sprite &= 0xFFFFFF00;
+		sprites[i] = sprite | y;
+	}
+}
+
+console.log(`BOOTING RISK(TM) PICTURE MACHINE
+   ** RISK STATUS **
++---------------------+
+|RISK MEM: ${mem.byteLength / 2}  words |
+|TILES:    ${tiles.byteLength / 2}  words |
+|SPRITES:  ${sprites.byteLength / 2}   words |
+|PALETTES: ${palettes.byteLength / 2}   words |
+|MAP:      ${map.byteLength / 2}  words |
++---------------------+`);
