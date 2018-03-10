@@ -198,8 +198,9 @@ function meganimation() {
 	for (let i = 0; i < 4; i++) {
 		let sprite = sprites[i];
 		let y = ycenter + Math.floor(Math.sin(Date.now() / 200 + i) * 6);
-		sprite &= 0xFFFFFF00;
-		sprites[i] = sprite | y;
+		let x = ((sprite >> 8 & 0xFF) + 1) % 128
+		sprite &= 0xFFFF0000;
+		sprites[i] = sprite | x << 8 | y;
 	}
 }
 
