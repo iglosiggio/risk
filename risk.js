@@ -34,15 +34,13 @@ const mem = new ArrayBuffer( TILE_SIZE    * NUM_TILES
                            + MAP_SIZE);
 
 let start = 0;
-const tilemem    = mem.slice(start, start += TILE_SIZE    * NUM_TILES);
-const spritemem  = mem.slice(start, start += SPRITE_SIZE  * NUM_SPRITES);
-const palettemem = mem.slice(start, start += PALETTE_SIZE * NUM_PALETTES);
-const mapmem     = mem.slice(start, start += MAP_SIZE);
-
-const tiles = new Uint8Array(tilemem);
-const sprites = new Uint32Array(spritemem);
-const palettes = new Uint16Array(palettemem);
-const map = new Uint8Array(mapmem);
+const tiles    = new  Uint8Array(mem, 0,                           TILE_SIZE *  NUM_TILES);
+const sprites  = new Uint32Array(mem, TILE_SIZE    * NUM_TILES,    NUM_SPRITES);
+const palettes = new Uint16Array(mem, TILE_SIZE    * NUM_TILES
+                                    + SPRITE_SIZE  * NUM_SPRITES,  NUM_PALETTES);
+const map      = new  Uint8Array(mem, TILE_SIZE    * NUM_TILES
+                                    + SPRITE_SIZE  * NUM_SPRITES
+                                    + PALETTE_SIZE * NUM_PALETTES, 16 * 16);
 
 /***********
  * DRAWING *
@@ -139,6 +137,7 @@ palettes[0] = 0xFF00;
 palettes[1] = 0xAA22;
 palettes[2] = 0x15A5;
 palettes[3] = 0x6418;
+palettes[4] = 0xFF00;
 
 tiles[0] = 0b11111111;
 tiles[1] = 0b10011001;
@@ -211,10 +210,10 @@ for (let i = 0; i < 256; i++)
 	set_map((i % 16) % 7, i >> 4 % 3, i & 0xF, i >> 4);
 
 /* Make the MEGA text */
-put_sprite(0, 4, 6, 8*4, 8*5, FRONT);
-put_sprite(1, 5, 6, 8*5, 8*5, BACK);
-put_sprite(2, 6, 6, 8*6, 8*5, BACK);
-put_sprite(3, 2, 6, 8*7, 8*5, BACK);
+put_sprite(0, 4, 4, 8*4, 8*5, FRONT);
+put_sprite(1, 5, 4, 8*5, 8*5, BACK);
+put_sprite(2, 6, 4, 8*6, 8*5, FRONT);
+put_sprite(3, 2, 4, 8*7, 8*5, BACK);
 
 /* Add a sprite in the middle */
 put_sprite(4, 0, 2, 60, 60);
@@ -225,14 +224,21 @@ setInterval(() => palettes[1] = Math.floor(Math.random() * (1 << 16)), 1333);
 setInterval(() => palettes[2] = Math.floor(Math.random() * (1 << 16)), 167);
 setInterval(() => palettes[3] = Math.floor(Math.random() * (1 << 16)), 269);
 
+let t = 0;
 function meganimation() {
+	t++;
 	let ycenter = 8*5;
 	for (let i = 0; i < 4; i++) {
 		let sprite = sprites[i];
 		let y = ycenter + Math.floor(Math.sin(Date.now() / 200 + i) * 6);
-		let x = ((sprite >> 8 & 0xFF) + 1) % 128
-		sprite &= 0xFFFF0000;
-		sprites[i] = sprite | x << 8 | y;
+		let x = ((sprite >> 8 & 0xFF) + 1) % 128;
+		let a = sprite >> 16 & 0x3;
+		if (t % 40 === 0) {
+			a ^= 0x3;
+			palettes[4] ^= 0xFFFF;
+		}
+		sprite &= 0xFFFC0000;
+		sprites[i] = sprite | a << 16 | x << 8 | y;
 	}
 }
 
